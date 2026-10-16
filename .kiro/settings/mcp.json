@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "steam": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@dotenvx/dotenvx",
+        "run",
+        "-f",
+        "c:/Kiro_test/Kiro_Hackathon/Kiro_Hackathon_Git/.env",
+        "--",
+        "npx",
+        "-y",
+        "@praeses/steam-mcp"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
