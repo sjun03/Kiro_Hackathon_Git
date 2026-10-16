@@ -27,6 +27,10 @@ export interface Game {
   sessionLength: SessionLength;
   saveFlexibility: SaveFlexibility;
   preference: Preference;
+  /** 총 플레이타임(분). Steam에서 가져온 경우 playtime_forever. */
+  playtimeMinutes?: number;
+  /** Steam appid (장르 보강/식별용). */
+  appid?: number;
 }
 
 /** 사용자가 추천을 요청할 때 보내는 상황 정보 */

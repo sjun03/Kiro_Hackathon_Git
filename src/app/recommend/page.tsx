@@ -36,6 +36,7 @@ export default function RecommendPage() {
             situation,
             mood,
           },
+          // Gemini 키는 서버 .env(GEMINI_API_KEY)에서만 사용한다.
         }),
       });
       if (!res.ok) throw new Error("추천 요청 실패");

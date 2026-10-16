@@ -145,12 +145,75 @@ export function fromSteamOwnedGames(
         title: g.name,
         status,
         progress: inferProgress(status, forever),
-        genre: "", // Steam GetOwnedGames엔 장르가 없음 → 사용자가 채우거나 추후 store API로 보강
+        genre: "", // 장르는 Store API로 보강(enrichGenres). 없으면 빈 값.
         sessionLength: inferSessionLength(),
         saveFlexibility: inferSaveFlexibility(),
         preference: inferPreference(recent),
+        playtimeMinutes: forever, // 총 플레이타임 보존 (화면 표시 + 추천에 사용)
+        appid: g.appid, // 장르 보강/식별용
       } satisfies Game;
     });
+}
+
+/** Steam Store appdetails 응답에서 장르만 뽑기 위한 느슨한 타입 */
+interface StoreAppDetails {
+  [appid: string]: {
+    success: boolean;
+    data?: {
+      genres?: { id: string; description: string }[];
+    };
+  };
+}
+
+/**
+ * Steam Store API(appdetails)로 각 게임의 장르를 보강한다.
+ * - GetOwnedGames에는 장르가 없으므로 appid별로 조회한다.
+ * - Store API는 키가 필요 없지만 rate limit이 있어, 과도한 호출을 피하려
+ *   maxGames 개까지만(기본 플레이타임 상위순) 조회한다.
+ * - 실패한 게임은 장르를 비워둔 채 그대로 둔다.
+ */
+export async function enrichGenres(
+  games: Game[],
+  opts: { maxGames?: number; language?: string } = {}
+): Promise<Game[]> {
+  const maxGames = opts.maxGames ?? 30;
+  const lang = opts.language ?? "korean";
+
+  // 장르가 비어 있고 appid가 있는 게임만, 플레이타임 많은 순으로 대상 선정
+  const targets = games
+    .filter((g) => g.appid && !g.genre)
+    .sort((a, b) => (b.playtimeMinutes ?? 0) - (a.playtimeMinutes ?? 0))
+    .slice(0, maxGames);
+
+  const genreByAppid = new Map<number, string>();
+
+  for (const g of targets) {
+    const appid = g.appid as number;
+    try {
+      const res = await fetch(
+        `https://store.steampowered.com/api/appdetails?appids=${appid}&l=${lang}&filters=genres`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) continue;
+      const data = (await res.json()) as StoreAppDetails;
+      const entry = data?.[String(appid)];
+      if (entry?.success && entry.data?.genres?.length) {
+        const genre = entry.data.genres
+          .slice(0, 2)
+          .map((x) => x.description)
+          .join(", ");
+        genreByAppid.set(appid, genre);
+      }
+    } catch {
+      // 개별 실패는 무시하고 계속
+    }
+  }
+
+  return games.map((g) =>
+    g.appid && genreByAppid.has(g.appid)
+      ? { ...g, genre: genreByAppid.get(g.appid) as string }
+      : g
+  );
 }
 
 /** 분을 "n시간 m분" 사람 친화 문자열로 (디버깅/표시용) */

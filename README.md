@@ -134,14 +134,25 @@ cp .env.example .env   # Windows PowerShell: Copy-Item .env.example .env
 | 변수 | 용도 | 비우면 |
 |------|------|--------|
 | `GEMINI_API_KEY` | AI 추천 (Gemini) | mock 추천으로 자동 동작 |
-| `STEAM_API_KEY` | Steam 라이브러리 가져오기 (MCP) | Steam 연동 제한 |
-| `STEAM_ID` | 17자리 SteamID (MCP) | Steam 연동 제한 |
+| `STEAM_API_KEY` | Steam 라이브러리 가져오기 (서버가 사용) | Steam 가져오기 비활성 |
+| `STEAM_ID` | MCP용 기본 SteamID (선택) | 영향 없음 (앱은 사용자 입력 사용) |
 
+- **API 키는 전부 서버 `.env` 에서만 관리한다.** 사용자는 키를 입력하지 않는다.
 - `GEMINI_API_KEY` 는 Next.js 서버(`src/lib/recommend.ts`)가 자동으로 읽는다.
-  키가 들어오면 mock → 실제 Gemini 호출로 전환된다 (프론트 수정 불필요).
-- `STEAM_API_KEY` / `STEAM_ID` 는 MCP 서버가 `dotenvx` 를 통해 같은 `.env` 에서 읽는다.
+  키가 있으면 실제 Gemini 추천, 없으면 mock 추천으로 자동 전환된다.
+- `STEAM_API_KEY` 는 `/api/steam` 라우트가 읽는다. 사용자는 SteamID만 보내고,
+  서버가 이 키로 Steam Web API를 호출한다. (키가 없으면 가져오기 요청이 500으로 거부)
 - `.env*` 파일은 `.gitignore` 에 포함되어 커밋되지 않는다.
-- 값을 바꾸면 서버(및 MCP 서버)를 재시작/재연결한다.
+- 값을 바꾸면 서버를 재시작한다.
+
+### 사용자 입력 (SteamID만)
+
+사용자는 **Steam 고유 번호(SteamID 17자리)만** 입력하면 된다. API 키 입력은 없다.
+
+- `/library` 화면의 "내 Steam 계정에서 가져오기"에서 SteamID 입력 → "가져오기"
+- SteamID는 다음 방문을 위해 브라우저 localStorage에 저장된다 (키가 아니라 공개 식별자)
+- 서버는 `/api/steam`(서버 `.env`의 `STEAM_API_KEY` 사용)로 Steam Web API를 호출해
+  보유 게임·플레이타임을 Game[] 로 변환, 라이브러리에 추가한다
 
 ## 폴더 구조
 
@@ -151,12 +162,15 @@ src/
     page.tsx              랜딩 화면
     layout.tsx            공통 레이아웃/헤더
     globals.css           Tailwind 전역 스타일
-    library/page.tsx      내 게임 라이브러리 (추가/수정/삭제)
+    library/page.tsx      내 게임 라이브러리 (추가/수정/삭제 + SteamID로 가져오기)
     recommend/page.tsx    "지금 쉴래" 입력 + 추천 결과
-    api/recommend/route.ts  추천 API (키 유무 자동 분기)
+    api/recommend/route.ts  추천 API (.env GEMINI_API_KEY > mock)
+    api/steam/route.ts    Steam 보유 게임 가져오기 (SteamID 입력, 서버 .env 키 사용)
   lib/
     types.ts              공통 타입/라벨
     storage.ts            localStorage 저장 유틸 + 예시 데이터
+    settings.ts           SteamID 저장 유틸 (localStorage)
+    steam.ts              Steam 데이터 → Game 변환
     recommend.ts          추천 엔진 (Gemini / mock)
 ```
 

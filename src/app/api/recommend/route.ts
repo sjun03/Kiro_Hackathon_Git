@@ -1,6 +1,6 @@
 // 추천 API 라우트.
 // 프론트가 게임 목록 + 상황을 POST 하면 추천 결과를 돌려준다.
-// 키가 없으면 recommend() 내부에서 자동으로 mock으로 응답한다.
+// Gemini 키는 서버 .env(GEMINI_API_KEY)에서 읽는다. 없으면 자동으로 mock으로 응답한다.
 
 import { NextRequest, NextResponse } from "next/server";
 import { recommend } from "@/lib/recommend";

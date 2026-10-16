@@ -10,7 +10,8 @@ import {
   newId,
   sampleGames,
 } from "@/lib/storage";
-import { fromSteamOwnedGames } from "@/lib/steam";
+import { formatPlaytime } from "@/lib/steam";
+import { loadSettings, saveSettings } from "@/lib/settings";
 import {
   type Game,
   type GameStatus,
@@ -40,12 +41,14 @@ export default function LibraryPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [draft, setDraft] = useState<Game>(emptyGame());
   const [loaded, setLoaded] = useState(false);
-  const [steamJson, setSteamJson] = useState("");
-  const [steamMsg, setSteamMsg] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState<string | null>(null);
+  const [steamId, setSteamId] = useState("");
 
   // 최초 로드
   useEffect(() => {
     setGames(loadGames());
+    setSteamId(loadSettings().steamId);
     setLoaded(true);
   }, []);
 
@@ -71,39 +74,49 @@ export default function LibraryPage() {
     setGames((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   }
 
-  // Steam MCP로 가져온 GetOwnedGames JSON을 붙여넣어 라이브러리로 변환
-  function importFromSteam() {
-    setSteamMsg(null);
-    const text = steamJson.trim();
-    if (!text) {
-      setSteamMsg("Steam 게임 목록 JSON을 붙여넣어 주세요.");
+  // SteamID만으로 /api/steam 을 호출해 바로 가져오기 (API 키는 서버 .env)
+  async function fetchFromSteamAccount() {
+    setFetchMsg(null);
+    const id = steamId.trim();
+    if (!id) {
+      setFetchMsg("SteamID(17자리 숫자)를 입력해주세요.");
       return;
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      setSteamMsg("JSON 형식이 올바르지 않아요. 다시 확인해 주세요.");
+    if (!/^\d{17}$/.test(id)) {
+      setFetchMsg("SteamID는 17자리 숫자여야 해요.");
       return;
     }
-    try {
-      // 배열 / { response: { games } } / { games } 모두 처리됨
-      const imported = fromSteamOwnedGames(
-        parsed as Parameters<typeof fromSteamOwnedGames>[0]
+    // 기존 라이브러리가 있으면 교체 여부를 확인한다.
+    // (다른 SteamID로 가져올 때 기존 목록에 쌓이지 않고 새 계정 목록으로 교체)
+    if (games.length > 0) {
+      const ok = confirm(
+        "가져오면 현재 라이브러리를 이 계정의 게임 목록으로 교체합니다. 계속할까요?"
       );
-      if (imported.length === 0) {
-        setSteamMsg(
-          "변환된 게임이 없어요. GetOwnedGames 응답(games 배열)이 맞는지 확인해 주세요."
-        );
+      if (!ok) return;
+    }
+    // 다음 방문을 위해 저장
+    saveSettings({ steamId: id });
+    setFetching(true);
+    try {
+      const res = await fetch("/api/steam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steamId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFetchMsg(data?.error || "가져오기에 실패했어요.");
         return;
       }
-      setGames((prev) => [...prev, ...imported]);
-      setSteamJson("");
-      setSteamMsg(
-        `${imported.length}개 게임을 가져왔어요. 세션 길이/장르는 비어 있으니 아래에서 다듬어 주세요.`
+      // 기존 목록에 쌓지 않고 새 계정 목록으로 교체
+      setGames(data.games as Game[]);
+      setFetchMsg(
+        `${data.count}개 게임을 가져왔어요. 세션 길이/장르는 아래에서 다듬어 주세요.`
       );
     } catch {
-      setSteamMsg("변환 중 오류가 발생했어요. JSON 구조를 확인해 주세요.");
+      setFetchMsg("네트워크 오류로 가져오지 못했어요.");
+    } finally {
+      setFetching(false);
     }
   }
 
@@ -121,32 +134,32 @@ export default function LibraryPage() {
         )}
       </header>
 
-      {/* Steam 가져오기 */}
+      {/* Steam 계정에서 바로 가져오기 */}
       <section className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-        <h2 className="font-semibold">Steam에서 가져오기</h2>
+        <h2 className="font-semibold">내 Steam 계정에서 가져오기</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Kiro에 연결한 Steam MCP로 보유 게임 목록(GetOwnedGames)을 받은 뒤,
-          그 JSON을 아래에 붙여넣고 가져오기를 누르세요. 플레이타임으로 상태·진행도를
-          자동 추정합니다.
+          Steam 고유 번호(SteamID 17자리)만 입력하면 보유 게임과 플레이타임을 바로
+          불러옵니다. 프로필의 “게임 상세정보”가 공개여야 해요.
         </p>
-        <textarea
-          value={steamJson}
-          onChange={(e) => setSteamJson(e.target.value)}
-          rows={5}
-          placeholder='예: {"response":{"games":[{"appid":1145360,"name":"Hades","playtime_forever":2730,"playtime_2weeks":120}]}}'
-          className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs focus:border-brand focus:outline-none"
-        />
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            value={steamId}
+            onChange={(e) => setSteamId(e.target.value)}
+            placeholder="예)12345678901234567"
+            inputMode="numeric"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-brand focus:outline-none sm:max-w-xs"
+          />
           <button
-            onClick={importFromSteam}
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium hover:bg-brand-dark"
+            onClick={fetchFromSteamAccount}
+            disabled={fetching}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
           >
-            가져오기
+            {fetching ? "가져오는 중..." : "가져오기"}
           </button>
-          {steamMsg && (
-            <span className="text-sm text-slate-400">{steamMsg}</span>
-          )}
         </div>
+        {fetchMsg && (
+          <p className="mt-2 text-sm text-slate-400">{fetchMsg}</p>
+        )}
       </section>
 
       {/* 추가 폼 */}
@@ -293,6 +306,13 @@ export default function LibraryPage() {
                   <span className="rounded bg-slate-800 px-2 py-0.5">
                     {PREFERENCE_LABELS[g.preference]}
                   </span>
+                  {typeof g.playtimeMinutes === "number" && (
+                    <span className="rounded bg-brand/20 px-2 py-0.5 text-brand">
+                      플레이 {g.playtimeMinutes > 0
+                        ? formatPlaytime(g.playtimeMinutes)
+                        : "기록 없음"}
+                    </span>
+                  )}
                 </div>
               </div>
               <button
